@@ -1,0 +1,5 @@
+credentials*
+myenv/
+.env
+*.json
+*.pickle
