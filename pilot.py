@@ -8,6 +8,10 @@ import json
 import re
 from openai import OpenAI
 from dotenv import load_dotenv
+import pandas as pd
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
+
 load_dotenv()
 
 
@@ -120,33 +124,50 @@ def get_thread_messages(client, thread):
 
     return messages, parsed_json
 
-def general_get_completion(client, messages):
-    completion = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=messages,
-        response_format={"type": "json_object"}
-    )
-    final_fields = None
-    if completion.choices[0].message.content:
-        final_fields = json.loads(completion.choices[0].message.content)
-    else:
-        print("No JSON object found in the text.")
-
-    return completion, final_fields
+def general_get_completion(client, messages, require_json=False):
+    # Set up completion parameters
+    params = {
+        "model": "gpt-4o-mini",
+        "messages": messages
+    }
+    
+    # Add response format parameter only if JSON is required
+    if require_json:
+        params["response_format"] = {"type": "json_object"}
+    
+    completion = client.chat.completions.create(**params)
+    
+    # Handle the response
+    content = completion.choices[0].message.content
+    if require_json:
+        try:
+            return completion, json.loads(content) if content else None
+        except json.JSONDecodeError:
+            print("Error: Response was not valid JSON")
+            return completion, None
+    
+    return completion, content
 
 # Update the function call
 service = authenticate_gmail()
 
 
-max_results = 3
-query_string = f'(apply OR application OR applying)'
+max_results = 100  # You might want to increase this to get more emails
+n_days = 7  # Number of days back to search
+
+# Calculate the date n days ago
+n_days_ago = datetime.date.today() - datetime.timedelta(days=n_days)
+
+# Format the date for Gmail query
+formatted_date = n_days_ago.strftime('%Y-%m-%d')
+query_string = f'(application OR applying) after:{formatted_date}'
+
 results = service.users().messages().list(
     userId='me',
     maxResults=max_results,
     labelIds=['INBOX'],
-    q=f'{query_string} -category:promotions' # excludes promotions 
+    q=f'{query_string} -category:promotions'
 ).execute()
-
 # Process the results
 emails = process_email_results(service, results)
 
@@ -165,19 +186,52 @@ b) extract the company, and position type
 c) output a json of email id, company name, position type
 """
 
-client = OpenAI(api_key=os.environ.get("OPENAI_KEY"))
+openai_client = OpenAI(api_key=os.environ.get("OPENAI_KEY"))
 
 messages = [
     {"role": "system", "content": """You are a detail-oriented assistant reviewing emails to determine if they are from a company confirming they received my job application"""},
     {"role": "system", "content": """You are provided the email subject line as well as a preview of text from the email"""},
     {"role": "system", "content": """You have 2 tasks. A) determine if the email has to do with a job application. B) If it does, extract the company name and name of the position (if possible)"""},
-    {"role": "system", "content": """return the output in json format"""},
+    {"role": "system", "content": """If the email is not about a job, ignore it. If the email is about a job, output a csv with the following: company, position"""},
     {"role": "user", "content": f"Here are the emails to review {email_content}"}
 ]
 
-completion, final_fields = general_get_completion(client, messages)
+completion, content = general_get_completion(openai_client, messages)
+
+# Extract CSV content and convert to pandas DataFrame
+
+# Split the content into lines and remove markdown formatting
+csv_content = content.strip().split('\n')[1:]  # Skip the ```csv header
+csv_data = [line.split(',') for line in csv_content if line and not line.startswith('```')]
+
+# Create DataFrame
+# df = pd.DataFrame(csv_data, columns=['company', 'position'])
+df = pd.DataFrame(csv_data)
 
 
+
+########## Write to sheet. Try back in a few
+
+# Google Sheets Integration
+SCOPE = ['https://spreadsheets.google.com/feeds',
+         'https://www.googleapis.com/auth/drive']
+CREDS = ServiceAccountCredentials.from_json_keyfile_name(
+    'email-jobs-manager-service-account-creds.json', SCOPE)  # Replace with your credentials file
+SPREADSHEET_NAME = "Job Application Tracking"
+
+g_client = gspread.authorize(CREDS)
+sheet = g_client.open(SPREADSHEET_NAME).sheet1
+
+# Choose append or overwrite
+append_data = False  # Set to False to overwrite
+
+if append_data:
+    # Append data to the sheet
+    sheet.append_rows(df.values.tolist(), value_input_option='USER_ENTERED')
+else:
+    # Clear existing data and write DataFrame
+    sheet.clear()
+    sheet.update([df.columns.values.tolist()] + df.values.tolist())
 
 
 

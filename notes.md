@@ -1,10 +1,20 @@
 
-### todo -- run gmail search, then have llm discren what emails are relevant and what aren't based on snippets
+### todo -- 
+
+* tweak llm prompt & output
+    * add date, thread id? 
+
+* not gettting full set off messages
+
+* not being written in order of date received
 
 
-apply OR application OR applying
+### reference
+
+https://stackoverflow.com/questions/75454425/access-blocked-project-has-not-completed-the-google-verification-process
 
 ### latest applications
+goodparty rejection
 captions rejection
 better up
 artemis
@@ -19,11 +29,12 @@ point
 developers
 adthena
 
-### reference
-
-https://stackoverflow.com/questions/75454425/access-blocked-project-has-not-completed-the-google-verification-process
 
 ### Done
+* write it to the sheet
+* decide on a reasonable output format
+* decide what the sheet should have
+run gmail search, then have llm discren what emails are relevant and what aren't based on snippets
 a loop to feed in emails ids and collect the relevant data in an easy to use format
 able to get the ids of the last n emails
 able to access the data given each of those ids
