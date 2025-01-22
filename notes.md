@@ -2,9 +2,13 @@
 ### todo -- 
 
 * tweak llm prompt & output
-    * add date, thread id? 
+    * prompt strat
+        * could go through and get all the emails that relate to an application, then a second call classifies them into confirmation, rejection, other
+        * or just in one shot classify correctly
+    * add thread id? sender email?
 
 * not gettting full set off messages
+* missing 3 jellyfish emails for example
 
 * not being written in order of date received
 

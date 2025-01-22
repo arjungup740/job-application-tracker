@@ -176,6 +176,7 @@ for email in emails:
     email_content += "----\n"
     email_content += f"email subject: {email['subject']}\n"
     email_content += f"email snippet: {email['snippet']}\n"
+    email_content += f"date sent: {email['date_sent']}\n"
 
 ###### run emaiils through AI
 
@@ -192,8 +193,11 @@ messages = [
     {"role": "system", "content": """You are a detail-oriented assistant reviewing emails to determine if they are from a company confirming they received my job application"""},
     {"role": "system", "content": """You are provided the email subject line as well as a preview of text from the email"""},
     {"role": "system", "content": """You have 2 tasks. A) determine if the email has to do with a job application. B) If it does, extract the company name and name of the position (if possible)"""},
-    {"role": "system", "content": """If the email is not about a job, ignore it. If the email is about a job, output a csv with the following: company, position"""},
-    {"role": "user", "content": f"Here are the emails to review {email_content}"}
+    {"role": "system", "content": """If the email is not about a job, ignore it. If the email is about a job, output a csv with the following: date_sent, company, position, notes. These should be the only 4 columns"""},
+    {"role": "system", "content": """In the position column, things like 'Data Scientist, Product' are part of the position. Do not break out 'Data Scientist' from 'Product' in these scenarios."""},
+    {"role": "system", "content": """In the notes column, if the email is a rejection, put 'rejection'. If it is confirmation of receipt of an application ('thanks for applying', 'we received your application' etc.) put 'receipt'. 
+                                    If it is an offer of a job, a listing, or invitation to apply, put 'listing' """},
+    {"role": "user", "content": f"Here are the emails to review: {email_content}"}
 ]
 
 completion, content = general_get_completion(openai_client, messages)
@@ -207,7 +211,6 @@ csv_data = [line.split(',') for line in csv_content if line and not line.startsw
 # Create DataFrame
 # df = pd.DataFrame(csv_data, columns=['company', 'position'])
 df = pd.DataFrame(csv_data)
-
 
 
 ########## Write to sheet. Try back in a few
