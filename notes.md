@@ -2,6 +2,7 @@
 ### todo -- 
 
 * could go through and get all the emails that relate to an application, then a second call classifies them into confirmation, rejection, other. This might lead to better classifications
+    * tweak prompt to 
 * add thread id? sender email? the general From field?
 
 * not gettting full set of messages -- missing 3 jellyfish emails for example
