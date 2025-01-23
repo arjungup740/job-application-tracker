@@ -155,7 +155,7 @@ service = authenticate_gmail()
 
 
 max_results = 100  # You might want to increase this to get more emails
-n_days = 1  # Number of days back to search
+n_days = 7  # Number of days back to search
 
 # Calculate the date n days ago
 n_days_ago = datetime.date.today() - datetime.timedelta(days=n_days)
@@ -173,6 +173,8 @@ results = service.users().messages().list(
 # Process the results
 emails = process_email_results(service, results)
 
+# [email['snippet'] for email in emails if 'centraprise' in email['snippet']]
+
 email_content = ""
 for email in emails:
     email_content += "----\n"
@@ -181,6 +183,7 @@ for email in emails:
     email_content += f"thread id: {email['thread_id']}\n"
 
 ###### run emaiils through AI
+print('got emails, starting llm processing')
 
 openai_client = OpenAI(api_key=os.environ.get("OPENAI_KEY"))
 
@@ -200,10 +203,10 @@ if not one_llm_pass:
         {"role": "user", "content": f"Here are the emails to review: {email_content}"}
 ]
 
-    completion, content = general_get_completion(openai_client, messages)
+    classification_completion, classification_content = general_get_completion(openai_client, messages)
     
     ## take the thread ids and return just the data of the selected emails
-    selected_email_ids = eval(content)
+    selected_email_ids = eval(classification_content)
     # desired_thread_ids = ['19492d33b568351c', '1948f676b069c26a']
     # Filter logic
     filtered_emails = [dict_obj for dict_obj in emails if dict_obj['thread_id'] in selected_email_ids]
@@ -213,7 +216,7 @@ if not one_llm_pass:
         {"role": "system", "content": """You are provided a list of dictionaries with the following keys: subject, sender, snippet of email text, the date_sent, thread_id"""},
         {"role": "system", "content": """Your tasks are to 1) extract the company name and name of the position if the information is available. 2) determine if the email is a rejection, receipt, offer, listing, etc. """},
         {"role": "system", "content": """If the email is not about a job, ignore it. If the email is about a job, output a csv with the following: date_sent, sender, company, position, category, thread_id. These should be the only columns"""},
-        {"role": "system", "content": """In the position column, things like if the position is 'Data Scientist, Product' remove the comma as this will interfere with the csv formatting"""},
+        {"role": "system", "content": """In the position column, things like if the position is 'Data Scientist, Product' replace the comma with a ; as the comma will interfere with the csv formatting"""},
         {"role": "system", "content": """In the type column, if the email is a rejection, put 'rejection'. If it is confirmation of receipt of an application ('thanks for applying', 'we received your application' etc.) put 'receipt'. 
                                         If it is an offer of a job, a listing, or invitation to apply, put 'listing'. Feel free to add other types """},
         {"role": "system", "content": """DO NOT include the word 'csv' in your output. Just return the csv"""},
@@ -234,7 +237,7 @@ if one_llm_pass:
         {"role": "system", "content": """You are provided the email subject line as well as a preview of text from the email"""},
         {"role": "system", "content": """You have 2 tasks. A) determine if the email has to do with a job application. B) If it does, extract the company name and name of the position (if possible)"""},
         {"role": "system", "content": """If the email is not about a job, ignore it. If the email is about a job, output a csv with the following: date_sent, company, position, notes. These should be the only 4 columns"""},
-        {"role": "system", "content": """In the position column, things like if the position is 'Data Scientist, Product' remove the comma as this will interfere with the csv formatting"""},
+        {"role": "system", "content": """In the position column, things like if the position is 'Data Scientist, Product' replace the comma with a ; as the comma will interfere with the csv formatting"""},
         {"role": "system", "content": """In the notes column, if the email is a rejection, put 'rejection'. If it is confirmation of receipt of an application ('thanks for applying', 'we received your application' etc.) put 'receipt'. 
                                         If it is an offer of a job, a listing, or invitation to apply, put 'listing' """},
         {"role": "system", "content": """DO NOT include the word 'csv' in your output. Just return the csv"""},
@@ -249,6 +252,7 @@ csv_content = parsing_content.strip().split('\n')[1:]  # Skip the ```csv header
 csv_data = [line.split(',') for line in csv_content if line and not line.startswith('```')]
 df = pd.DataFrame(csv_data)
 
+print('df created:', '\n', df)
 ########## Write to sheet. 
 
 # Google Sheets Integration
@@ -262,7 +266,7 @@ g_client = gspread.authorize(CREDS)
 sheet = g_client.open(SPREADSHEET_NAME).sheet1
 
 # Choose append or overwrite
-append_data = True  # Set to False to overwrite
+append_data = False  # Set to False to overwrite
 
 if append_data:
     # Append data to the sheet

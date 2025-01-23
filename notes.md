@@ -1,14 +1,11 @@
 
 ### todo -- 
 
-* could go through and get all the emails that relate to an application, then a second call classifies them into confirmation, rejection, other. This might lead to better classifications
-    * get out an output
-    * then can worry about token counts and the cheaper way to extract the other meta data
-* add thread id? sender email? the general From field?
+* cheaper way to extract/enrich with the other meta data rather than give it all to the llm 
 
-* anytime we have something like "data scientist, product" we get "product" as a separate column. Those need to stay together
+
 * not gettting full set of messages -- missing 3 jellyfish emails for example
-
+* not getting centraprise email classified as a listing
 
 
 * the appends are in weird format, writes the header each time as well
@@ -38,6 +35,9 @@ adthena
 
 
 ### Done
+* anytime we have something like "data scientist, product" we get "product" as a separate column. Those need to stay together
+* could go through and get all the emails that relate to an application, then a second call classifies them into confirmation, rejection, other. This might lead to better classifications
+* add thread id? sender email? the general From field?
 * prompt strat
     * or just in one shot classify correctly
 * write it to the sheet
