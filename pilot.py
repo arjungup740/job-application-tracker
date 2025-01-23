@@ -153,7 +153,7 @@ service = authenticate_gmail()
 
 
 max_results = 100  # You might want to increase this to get more emails
-n_days = 7  # Number of days back to search
+n_days = 1  # Number of days back to search
 
 # Calculate the date n days ago
 n_days_ago = datetime.date.today() - datetime.timedelta(days=n_days)
@@ -226,7 +226,7 @@ g_client = gspread.authorize(CREDS)
 sheet = g_client.open(SPREADSHEET_NAME).sheet1
 
 # Choose append or overwrite
-append_data = False  # Set to False to overwrite
+append_data = True  # Set to False to overwrite
 
 if append_data:
     # Append data to the sheet

@@ -1,16 +1,16 @@
 
 ### todo -- 
 
-* tweak llm prompt & output
-    * prompt strat
-        * could go through and get all the emails that relate to an application, then a second call classifies them into confirmation, rejection, other
-        * or just in one shot classify correctly
-    * add thread id? sender email?
+* could go through and get all the emails that relate to an application, then a second call classifies them into confirmation, rejection, other. This might lead to better classifications
+* add thread id? sender email? the general From field?
 
-* not gettting full set off messages
-* missing 3 jellyfish emails for example
+* not gettting full set of messages -- missing 3 jellyfish emails for example
+* anytime we have something like "data scientist, product" we get "product" as a separate column. Those need to stay together
 
-* not being written in order of date received
+
+* the appends are in weird format, writes the header each time as well
+* getting 0, 1,2, etc as headers
+* package to run daily
 
 
 ### reference
@@ -35,6 +35,8 @@ adthena
 
 
 ### Done
+* prompt strat
+    * or just in one shot classify correctly
 * write it to the sheet
 * decide on a reasonable output format
 * decide what the sheet should have
