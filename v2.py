@@ -10,24 +10,10 @@ from openai import OpenAI
 from dotenv import load_dotenv
 import pandas as pd
 import gspread
+import logging
 from oauth2client.service_account import ServiceAccountCredentials
 
 load_dotenv()
-
-
-def pretty_print_dict_preview(d, num_entries=10):
-    """Print the first few entries of a dictionary in a readable format."""
-    print("\nDictionary Preview:")
-    print("-" * 40)
-    for i, (key, value) in enumerate(d.items()):
-        if i >= num_entries:
-            break
-        print(f"{key}: {value}")
-    remaining = len(d) - num_entries
-    if remaining > 0:
-        print(f"... and {remaining} more entries")
-    print("-" * 40)
-
 
 # Authenticate Gmail API
 def authenticate_gmail():
@@ -129,7 +115,7 @@ def get_thread_messages(client, thread):
 def general_get_completion(client, messages, require_json=False):
     # Set up completion parameters
     params = {
-        "model": "gpt-4o-mini",
+        "model": "gpt-4o",
         "messages": messages
     }
     
@@ -152,10 +138,10 @@ def general_get_completion(client, messages, require_json=False):
 
 # Update the function call
 service = authenticate_gmail()
-
+logging.info('gmail auth complete, beginning pulling emails')
 
 max_results = 100  # You might want to increase this to get more emails
-n_days = 7  # Number of days back to search
+n_days = 1  # Number of days back to search
 
 # Calculate the date n days ago
 n_days_ago = datetime.date.today() - datetime.timedelta(days=n_days)
@@ -175,6 +161,7 @@ emails = process_email_results(service, results)
 
 # [email['snippet'] for email in emails if 'centraprise' in email['snippet']]
 
+## don't need this anymore, but another way to present data to the llm and more human readable
 email_content = ""
 for email in emails:
     email_content += "----\n"
@@ -183,7 +170,7 @@ for email in emails:
     email_content += f"thread id: {email['thread_id']}\n"
 
 ###### run emaiils through AI
-print('got emails, starting llm processing')
+logging.info('got emails, starting llm processing')
 
 openai_client = OpenAI(api_key=os.environ.get("OPENAI_KEY"))
 
@@ -197,13 +184,14 @@ if not one_llm_pass:
     2nd step: if it is job related, extract the from, company name, position, type (receipt, rejection , offer, etc)
     """
     messages = [
-        {"role": "system", "content": """You are a detail-oriented assistant reviewing emails to determine if they have to do with a job application -- a job application is any email that has to do with applying for a job"""},
+        {"role": "system", "content": """You are a detail-oriented assistant reviewing emails to determine if they have to do with a job application -- a job application is any email that has to do with applying for a job or a listing for a job"""},
         {"role": "system", "content": """You are provided the email subject line as well as a preview of text from the email as well as an alphanumeric thread_id which is unique to each email"""},
         {"role": "system", "content": """Your job is to determine if the email has to do with a job application. If it does, output a list of thread ids in python list format (e.g. ['123', '456', '789']). DO NOT include the word 'python' in your output"""},
-        {"role": "user", "content": f"Here are the emails to review: {email_content}"}
+        {"role": "user", "content": f"Here are the emails to review: {emails}"}
 ]
 
     classification_completion, classification_content = general_get_completion(openai_client, messages)
+    logging.info('llm pass 1 done')
     
     ## take the thread ids and return just the data of the selected emails
     selected_email_ids = eval(classification_content)
@@ -224,6 +212,7 @@ if not one_llm_pass:
     ]
 
     parsing_completion, parsing_content = general_get_completion(openai_client, messages)
+    logging.info('llm pass 2 done')
 
 if one_llm_pass:
     """
@@ -246,13 +235,18 @@ if one_llm_pass:
 
     parsing_completion, parsing_content = general_get_completion(openai_client, messages)
 
+logging.info('llm section done')
+
 ## Extract CSV content and convert to pandas DataFrame
 # Split the content into lines and remove markdown formatting
 csv_content = parsing_content.strip().split('\n')[1:]  # Skip the ```csv header
 csv_data = [line.split(',') for line in csv_content if line and not line.startswith('```')]
-df = pd.DataFrame(csv_data)
-
-print('df created:', '\n', df)
+df = pd.DataFrame(csv_data, columns=['date_sent', 'sender', 'company', 'position', 'classification', 'thread_id'])
+df['date_sent'] = pd.to_datetime(df['date_sent'])
+df = df.sort_values(by='date_sent', ascending=False)
+df['time_sent'] = df['date_sent'].dt.strftime('%H:%M:%S')
+df['date_sent'] = df['date_sent'].dt.strftime('%Y-%m-%d')
+logging.info('df created:', '\n', df)
 ########## Write to sheet. 
 
 # Google Sheets Integration
@@ -262,25 +256,37 @@ CREDS = ServiceAccountCredentials.from_json_keyfile_name(
     'email-jobs-manager-service-account-creds.json', SCOPE)  # Replace with your credentials file
 SPREADSHEET_NAME = "Job Application Tracking"
 
+def write_to_gsheet(df, sheet, overwrite=True):
+
+    if overwrite:
+        # Clear existing data and write DataFrame
+        sheet.clear()
+        sheet.update([df.columns.values.tolist()] + df.values.tolist())
+    else:
+        # Clear existing data and write DataFrame
+        sheet.append_rows(df.values.tolist(), value_input_option='USER_ENTERED')
+
+
 g_client = gspread.authorize(CREDS)
-sheet = g_client.open(SPREADSHEET_NAME).sheet1
+input_sheet = g_client.open(SPREADSHEET_NAME).worksheet("input")
 
-# Choose append or overwrite
-append_data = False  # Set to False to overwrite
+## write to the input sheet - this is append only and that never changes
+write_to_gsheet(df, input_sheet, overwrite=False)
+## pull all of its data, sort it, and write it to the output sheet
+new_output_sheet_data = pd.DataFrame(input_sheet.get_all_records())\
+                        .sort_values(by=['date_sent', 'time_sent'], ascending=False)\
+                        .drop_duplicates(subset=['thread_id'])
 
-if append_data:
-    # Append data to the sheet
-    sheet.append_rows(df.values.tolist(), value_input_option='USER_ENTERED')
-else:
-    # Clear existing data and write DataFrame
-    sheet.clear()
-    sheet.update([df.columns.values.tolist()] + df.values.tolist())
+output_sheet = g_client.open(SPREADSHEET_NAME).worksheet("output")
+write_to_gsheet(new_output_sheet_data, output_sheet, overwrite=True)
 
 
 
 ######## scratch
 
+## ok what we want is for 
 
-msg_data = service.users().messages().get(userId='me', id='19492d33b568351c').execute()
+
+# msg_data = service.users().messages().get(userId='me', id='19492d33b568351c').execute()
 
 
