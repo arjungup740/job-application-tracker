@@ -242,10 +242,7 @@ logging.info('llm section done')
 csv_content = parsing_content.strip().split('\n')[1:]  # Skip the ```csv header
 csv_data = [line.split(',') for line in csv_content if line and not line.startswith('```')]
 df = pd.DataFrame(csv_data, columns=['date_sent', 'sender', 'company', 'position', 'classification', 'thread_id'])
-df['date_sent'] = pd.to_datetime(df['date_sent'])
 df = df.sort_values(by='date_sent', ascending=False)
-df['time_sent'] = df['date_sent'].dt.strftime('%H:%M:%S')
-df['date_sent'] = df['date_sent'].dt.strftime('%Y-%m-%d')
 logging.info('df created:', '\n', df)
 ########## Write to sheet. 
 
@@ -271,11 +268,14 @@ g_client = gspread.authorize(CREDS)
 input_sheet = g_client.open(SPREADSHEET_NAME).worksheet("input")
 
 ## write to the input sheet - this is append only and that never changes
-write_to_gsheet(df, input_sheet, overwrite=False)
+write_to_gsheet(df, input_sheet, overwrite=True)
 ## pull all of its data, sort it, and write it to the output sheet
-new_output_sheet_data = pd.DataFrame(input_sheet.get_all_records())\
-                        .sort_values(by=['date_sent', 'time_sent'], ascending=False)\
-                        .drop_duplicates(subset=['thread_id'])
+new_output_sheet_data = pd.DataFrame(input_sheet.get_all_records())
+new_output_sheet_data['date_sent'] = pd.to_datetime(new_output_sheet_data['date_sent'])
+new_output_sheet_data['time_sent'] = new_output_sheet_data['date_sent'].dt.strftime('%H:%M:%S')
+new_output_sheet_data['date_sent'] = new_output_sheet_data['date_sent'].dt.strftime('%Y-%m-%d')
+new_output_sheet_data = new_output_sheet_data.sort_values(by=['date_sent', 'time_sent'], ascending=[False, False]).drop_duplicates(subset=['thread_id'])
+
 
 output_sheet = g_client.open(SPREADSHEET_NAME).worksheet("output")
 write_to_gsheet(new_output_sheet_data, output_sheet, overwrite=True)

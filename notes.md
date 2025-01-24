@@ -4,6 +4,10 @@
 * package to run daily, grab the last several days and set it up to start running incrementally
     * fix sorting
     * dockerize
+        * make sure it works
+    * deploy to lambda
+
+* if you're feeling it, some ci/cd but idk don't have to.
         
 
 
