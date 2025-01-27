@@ -49,15 +49,11 @@ def process_email_results(service, results):
         payload = msg_data['payload']
         headers = payload['headers']
         thread_id = msg_data['threadId']
-
         # Extract subject
         subject = [header['value'] for header in headers if header['name'] == 'Subject'][0]
-
         # Extract sender
         sender = [header['value'] for header in headers if header['name'] == 'From'][0]
-
-        ## Todo: get body extraction at some point, idk why it doesn't work
-
+        ## Todo: get body extraction at some point
         # get date sent
         date_sent = datetime.datetime.fromtimestamp(int(msg_data['internalDate'])/1000).strftime('%Y-%m-%d %H:%M:%S')
 
@@ -136,12 +132,22 @@ def general_get_completion(client, messages, require_json=False):
     
     return completion, content
 
+def write_to_gsheet(df, sheet, overwrite=True):
+
+    if overwrite:
+        # Clear existing data and write DataFrame
+        sheet.clear()
+        sheet.update([df.columns.values.tolist()] + df.values.tolist())
+    else:
+        # Clear existing data and write DataFrame
+        sheet.append_rows(df.values.tolist(), value_input_option='USER_ENTERED')
+
 # Update the function call
 service = authenticate_gmail()
 logging.info('gmail auth complete, beginning pulling emails')
 
 max_results = 100  # You might want to increase this to get more emails
-n_days = 1  # Number of days back to search
+n_days = 2  # Number of days back to search
 
 # Calculate the date n days ago
 n_days_ago = datetime.date.today() - datetime.timedelta(days=n_days)
@@ -171,6 +177,7 @@ for email in emails:
 
 ###### run emaiils through AI
 logging.info('got emails, starting llm processing')
+print('got emails, starting llm processing')
 
 openai_client = OpenAI(api_key=os.environ.get("OPENAI_KEY"))
 
@@ -184,7 +191,7 @@ if not one_llm_pass:
     2nd step: if it is job related, extract the from, company name, position, type (receipt, rejection , offer, etc)
     """
     messages = [
-        {"role": "system", "content": """You are a detail-oriented assistant reviewing emails to determine if they have to do with a job application -- a job application is any email that has to do with applying for a job or a listing for a job"""},
+        {"role": "system", "content": """You are a detail-oriented assistant reviewing emails to determine if they have to do with a job application a job application is any email that has to do with applying for a job or a listing for a job"""},
         {"role": "system", "content": """You are provided the email subject line as well as a preview of text from the email as well as an alphanumeric thread_id which is unique to each email"""},
         {"role": "system", "content": """Your job is to determine if the email has to do with a job application. If it does, output a list of thread ids in python list format (e.g. ['123', '456', '789']). DO NOT include the word 'python' in your output"""},
         {"role": "user", "content": f"Here are the emails to review: {emails}"}
@@ -192,7 +199,7 @@ if not one_llm_pass:
 
     classification_completion, classification_content = general_get_completion(openai_client, messages)
     logging.info('llm pass 1 done')
-    
+    print('llm pass 1 done')
     ## take the thread ids and return just the data of the selected emails
     selected_email_ids = eval(classification_content)
     # desired_thread_ids = ['19492d33b568351c', '1948f676b069c26a']
@@ -206,14 +213,14 @@ if not one_llm_pass:
         {"role": "system", "content": """If the email is not about a job, ignore it. If the email is about a job, output a csv with the following: date_sent, sender, company, position, category, thread_id. These should be the only columns"""},
         {"role": "system", "content": """In the position column, things like if the position is 'Data Scientist, Product' replace the comma with a ; as the comma will interfere with the csv formatting"""},
         {"role": "system", "content": """In the type column, if the email is a rejection, put 'rejection'. If it is confirmation of receipt of an application ('thanks for applying', 'we received your application' etc.) put 'receipt'. 
-                                        If it is an offer of a job, a listing, or invitation to apply, put 'listing'. Feel free to add other types """},
+                                        If it is an offer of a job, a listing, or invitation to apply, put 'listing'. Feel free to add other types"""},
         {"role": "system", "content": """DO NOT include the word 'csv' in your output. Just return the csv"""},
         {"role": "user", "content": f"Here are the emails to review: {filtered_emails}"}
     ]
 
     parsing_completion, parsing_content = general_get_completion(openai_client, messages)
     logging.info('llm pass 2 done')
-
+    print('llm pass 2 done')
 if one_llm_pass:
     """
     pass the email subject, snippet to an llm and ask it to 
@@ -236,14 +243,17 @@ if one_llm_pass:
     parsing_completion, parsing_content = general_get_completion(openai_client, messages)
 
 logging.info('llm section done')
+print('llm section done')
 
 ## Extract CSV content and convert to pandas DataFrame
 # Split the content into lines and remove markdown formatting
 csv_content = parsing_content.strip().split('\n')[1:]  # Skip the ```csv header
 csv_data = [line.split(',') for line in csv_content if line and not line.startswith('```')]
+## should add logic writing this to csv in case of failure. or maybe just a pickle
 df = pd.DataFrame(csv_data, columns=['date_sent', 'sender', 'company', 'position', 'classification', 'thread_id'])
 df = df.sort_values(by='date_sent', ascending=False)
 logging.info('df created:', '\n', df)
+print('df created:', '\n', df)
 ########## Write to sheet. 
 
 # Google Sheets Integration
@@ -253,22 +263,11 @@ CREDS = ServiceAccountCredentials.from_json_keyfile_name(
     'email-jobs-manager-service-account-creds.json', SCOPE)  # Replace with your credentials file
 SPREADSHEET_NAME = "Job Application Tracking"
 
-def write_to_gsheet(df, sheet, overwrite=True):
-
-    if overwrite:
-        # Clear existing data and write DataFrame
-        sheet.clear()
-        sheet.update([df.columns.values.tolist()] + df.values.tolist())
-    else:
-        # Clear existing data and write DataFrame
-        sheet.append_rows(df.values.tolist(), value_input_option='USER_ENTERED')
-
-
 g_client = gspread.authorize(CREDS)
 input_sheet = g_client.open(SPREADSHEET_NAME).worksheet("input")
 
 ## write to the input sheet - this is append only and that never changes
-write_to_gsheet(df, input_sheet, overwrite=True)
+write_to_gsheet(df, input_sheet, overwrite=False) # when deployed this should be False
 ## pull all of its data, sort it, and write it to the output sheet
 new_output_sheet_data = pd.DataFrame(input_sheet.get_all_records())
 new_output_sheet_data['date_sent'] = pd.to_datetime(new_output_sheet_data['date_sent'])
