@@ -15,27 +15,40 @@ from oauth2client.service_account import ServiceAccountCredentials
 
 load_dotenv()
 
-# Authenticate Gmail API
+# Constants for file names
+TOKEN_FILE = 'token.pickle'
+CREDENTIALS_FILE = 'credentials.json'
+
+# Authenticate Gmail API with robust token handling
 def authenticate_gmail():
     SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
     creds = None
 
-    # Check if token.pickle exists
-    if os.path.exists('token.pickle'):
-        with open('token.pickle', 'rb') as token:
-            creds = pickle.load(token)
+    if os.path.exists(TOKEN_FILE):
+        try:
+            with open(TOKEN_FILE, 'rb') as token:
+                creds = pickle.load(token)
+        except (pickle.UnpicklingError, EOFError, AttributeError, IndexError) as e: # Handle potential pickle errors
+            print(f"Error loading token: {e}. Re-authenticating.")
+            creds = None  # Force re-authentication
+        except Exception as e:  # Catch other potential errors
+            print(f"Error loading token: {e}. Re-authenticating.")
+            creds = None
 
-    # If no valid credentials are available, request login
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
+            try:
+                creds.refresh(Request())
+            except Exception as e:  # Handle refresh errors (like revoked token)
+                print(f"Token refresh failed: {e}. Re-authenticating.")
+                creds = None # Force re-authentication
+        if not creds or not creds.valid:  # If refresh failed or no token
             flow = InstalledAppFlow.from_client_secrets_file(
-                'credentials.json', SCOPES)
-            creds = flow.run_local_server(port=0)
+                CREDENTIALS_FILE, SCOPES)
+            creds = flow.run_local_server(port=0)  # Or flow.run_console() if no browser available
 
-        # Save the credentials for the next run
-        with open('token.pickle', 'wb') as token:
+        # Save the credentials (overwriting if necessary)
+        with open(TOKEN_FILE, 'wb') as token:
             pickle.dump(creds, token)
 
     return build('gmail', 'v1', credentials=creds)
@@ -142,8 +155,8 @@ def write_to_gsheet(df, sheet, overwrite=True):
         # Clear existing data and write DataFrame
         sheet.append_rows(df.values.tolist(), value_input_option='USER_ENTERED')
 
-# Update the function call
-service = authenticate_gmail()
+############################# Execution
+service = authenticate_gmail()  # No manual intervention needed!
 logging.info('gmail auth complete, beginning pulling emails')
 
 max_results = 100  # You might want to increase this to get more emails
@@ -176,8 +189,8 @@ for email in emails:
     email_content += f"thread id: {email['thread_id']}\n"
 
 ###### run emaiils through AI
-logging.info('got emails, starting llm processing')
-print('got emails, starting llm processing')
+logging.info(f'got emails, starting llm processing. There were {len(emails)} emails')
+print(f'got emails, starting llm processing. There were {len(emails)} emails')
 
 openai_client = OpenAI(api_key=os.environ.get("OPENAI_KEY"))
 
